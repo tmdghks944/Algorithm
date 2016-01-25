@@ -26,9 +26,9 @@ vector<int>  bellmanford(int s)
 			break;
 		}
 	}
-	if (isUpdate == true)//n번째에도 완화가됨 -> 음수싸이클이 존재 
+	if (isUpdate == true)//n번째에도 완화가됨 -> 음수싸이클이 존재
 	{
-		upper.clear();
+		upper.clear();//빈벡터를 리턴하게 됨
 	}
 	return upper;
 }

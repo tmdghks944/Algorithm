@@ -1,0 +1,14 @@
+int solution(int s)//시작시 solution(-1)의 형식.
+{
+	int &ret = dp[s+1];
+	if (ret != -1)	return ret;
+	ret = 1;
+	for (int n = s + 1; n < T; n++)
+	{
+		if (s == -1 || arr[s] < arr[n])
+		{
+			ret = max(ret, solution(n) + 1);
+		}
+	}
+	return ret;
+}

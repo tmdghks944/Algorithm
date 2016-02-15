@@ -14,7 +14,7 @@ int solution(int a, int b)//a에서 b까지의 합.
 	int lo = a + arrsize;
 	int hi = b + arrsize;
 	int ret = 0;
-	while (lo >= hi)
+	while (lo <= hi)
 	{
 		if (lo % 2 == 1)	ret += arr[lo++];
 		if (hi % 2 == 0)	ret += arr[hi--];

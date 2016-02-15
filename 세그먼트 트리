@@ -1,0 +1,30 @@
+void input(int pos, int value)//조상에 각 리프의 합을 넣는 경우.
+{
+	int inputpos = pos + arrsize;
+	arr[inputpos] = value;
+	inputpos /= 2;
+	while (inputpos > 0)
+	{
+		arr[inputpos] = arr[inputpos*2] + arr[inputpos*2+1];
+		inputpos /= 2;
+	}
+}
+int solution(int a, int b)//a에서 b까지의 합.
+{
+	int lo = a + arrsize;
+	int hi = b + arrsize;
+	int ret = 0;
+	while (lo >= hi)
+	{
+		if (lo % 2 == 1)	ret += arr[lo++];
+		if (hi % 2 == 0)	ret += arr[hi--];
+		lo /= 2;
+		hi /= 2;
+	}
+	return ret;
+}
+
+arr.resize(4*n,0);//배열의 4배만큼 0으로 채워 넣음
+int arrsize=1;
+while(n>arrsize)
+  arrsize*=2;

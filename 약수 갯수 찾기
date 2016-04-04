@@ -1,0 +1,11 @@
+int countDivisor(const ll& num) {
+    int ret=0;
+    ll limit=sqrt(num);
+    for(ll i=1 ; i<=limit ; ++i) {
+        if(num%i==0) {
+            ++ret;
+            if(num/i!=limit) ++ret;
+        }
+    }
+    return ret;
+}

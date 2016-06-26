@@ -11,3 +11,4 @@ do
 		printf("%d ", arr[i]);
 	printf("\n");
 } while (next_permutation(arr.begin(), arr.end()));
+ 

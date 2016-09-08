@@ -1,0 +1,26 @@
+#include <stdio.h>
+int main(){
+    char a[10001],b[10001],c[10001];
+    int x,y,i,u;
+    x=y=i=u=0;
+    scanf("%s%s",a,b);
+    while(1){
+        if(a[i])x++;
+        if(b[i])y++;
+        if(!(a[i]+b[i]))break;
+        i++;
+    }
+    c[(x>y)?x:y]=0;
+    while(x+y){
+        i=0;
+        if(x)i=a[--x]-'0';
+        if(y)i+=b[--y]-'0';
+        i+=u;
+        u=i/10;
+        c[(x>y)?x:y]=i%10+'0';
+    }
+    if(u)printf("%d",u);
+    printf("%s",c);
+ 
+    return 0;
+}

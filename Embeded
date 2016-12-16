@@ -1,0 +1,361 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <string.h>
+
+#define TEXTLCD_BASE    0x56
+#define TEXTLCD_FUNCTION_SET      _IO(TEXTLCD_BASE,0x31)
+#define TEXTLCD_DISPLAY_ON       _IO(TEXTLCD_BASE,0x32)
+#define TEXTLCD_DISPLAY_OFF     _IO(TEXTLCD_BASE,0x33)
+#define TEXTLCD_DISPLAY_CURSOR_ON   _IO(TEXTLCD_BASE,0x34)
+#define TEXTLCD_DISPLAY_CURSOR_OFF   _IO(TEXTLCD_BASE,0x35)
+#define TEXTLCD_CURSOR_SHIFT_RIGHT  _IO(TEXTLCD_BASE,0x36)
+#define TEXTLCD_CURSOR_SHIFT_LEFT   _IO(TEXTLCD_BASE,0x37)
+#define TEXTLCD_ENTRY_MODE_SET    _IO(TEXTLCD_BASE,0x38)
+#define TEXTLCD_RETURN_HOME       _IO(TEXTLCD_BASE,0x39)
+#define TEXTLCD_CLEAR             _IO(TEXTLCD_BASE,0x3a)
+#define TEXTLCD_DD_ADDRESS_1    _IO(TEXTLCD_BASE,0x3b)
+#define TEXTLCD_DD_ADDRESS_2    _IO(TEXTLCD_BASE,0x3c)
+#define TEXTLCD_WRITE_BYTE        _IO(TEXTLCD_BASE,0x3d)
+#define TEXTLCD_STRING1 _IO(TEXTLCD_BASE, 0x3e)
+#define TEXTLCD_STRING2 _IO(TEXTLCD_BASE, 0x3f)
+
+static int fd_led, fd_vib, fd_but, fd_pie, fd_seg, fd_lcd;
+sem_t sembutton, semtimestart, semtimeend;
+pthread_t segtask, buttask, ledtask;
+pthread_mutex_t sharedmutex;
+
+static int pushVal, timevalue, f_lcd;
+int para = 0;
+int param[4] = { 0,0,0,0 };//segment에 출력될 숫자
+int pieparam[3] = { 100, 3, 792 };
+int vibpara = 1;
+int initpara = 0;
+unsigned char ledParam[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+
+void transclock(int para)
+{
+	int sec = para % 60;
+	para /= 60;
+	int min = para % 60;
+	param[3] = sec % 10;
+	sec /= 10;
+	param[2] = sec;
+	param[1] = min % 10;
+	min /= 10;
+	param[0] = min;
+}
+
+void progress()//초기 설정 시간 : initpara,현재시간 : timevalue
+{
+	int cutval = 0;
+	int i;
+	if (((float)timevalue / (float)initpara) * 100 >= 87.5)
+	{
+		cutval = 0;
+	}
+	else if (((float)timevalue / (float)initpara) * 100 >= 75)
+	{
+		cutval = 1;
+	}
+	else if (((float)timevalue / (float)initpara) * 100 >= 62.5)
+	{
+		cutval = 2;
+	}
+	else if (((float)timevalue / (float)initpara) * 100 >= 50)
+	{
+		cutval = 3;
+	}
+	else if (((float)timevalue / (float)initpara) * 100 >= 37.5)
+	{
+		cutval = 4;
+	}
+	else if (((float)timevalue / (float)initpara) * 100 >= 25)
+	{
+		cutval = 5;
+	}
+	else if (((float)timevalue / (float)initpara) * 100 >= 12.5)
+	{
+		cutval = 6;
+	}
+	else
+	{
+		cutval = 7;
+	}
+	for (i = cutval; i < 8; i++)
+	{
+		ledParam[i] = 1;
+	}
+}
+int welcome(int idev) {
+	ioctl(idev, TEXTLCD_CLEAR, NULL);
+	int i;
+	char param1[16] = "Microwave range ";
+	char param2[16] = "Press any button";
+	ioctl(idev, TEXTLCD_STRING1, param1);
+	ioctl(idev, TEXTLCD_STRING2, param2);
+	return 1;
+}
+
+int goodBye(int idev) {
+	ioctl(idev, TEXTLCD_CLEAR, NULL);
+	int i;
+	char param1[16] = "Microwave range ";
+	char param2[16] = "    Good Bye    ";
+	ioctl(idev, TEXTLCD_STRING1, param1);
+	ioctl(idev, TEXTLCD_STRING2, param2);
+	return 1;
+}
+
+int DisplayClear(int idev)
+{
+	ioctl(idev, TEXTLCD_CLEAR, NULL);
+	return 1;
+}
+
+int setminute(int idev, char minutenum)
+{
+	ioctl(idev, TEXTLCD_CLEAR, NULL);
+	char param[16] = "How many times??";
+	char param2[16];
+	ioctl(idev, TEXTLCD_STRING1, param);
+	if (minutenum == '1') {
+		char paramtmp[16] = "    Toast       ";
+		initpara = 60;
+		strcpy(param2, paramtmp);
+	}
+	else if (minutenum == '3') {
+		char paramtmp[16] = "    Bread       ";
+		initpara = 180;
+		strcpy(param2, paramtmp);
+	}
+	else if (minutenum == '5') {
+		char paramtmp[16] = "    Soup        ";
+		initpara = 300;
+		strcpy(param2, paramtmp);
+	}
+	else if (minutenum == '7') {
+		char paramtmp[16] = "    Pasta       ";
+		initpara = 420;
+		strcpy(param2, paramtmp);
+	}
+	else if (minutenum == '9') {
+		char paramtmp[16] = "    Spaghetti   ";
+		initpara = 540;
+		strcpy(param2, paramtmp);
+	}
+	param2[0] = minutenum;
+	ioctl(idev, TEXTLCD_STRING2, param2);
+	return 1;
+}
+
+void push_button()
+{
+	ioctl(f_lcd, TEXTLCD_DISPLAY_CURSOR_OFF, NULL);
+	int para = 0, value = 0;
+	while (1)
+	{//환영메세지 1번이나 2번 : 메뉴선택으로 이동 3번 : 종료
+		welcome(fd_lcd);
+		sem_wait(&sembutton);
+		value = pushVal;
+		if (value == 3)//3이 눌려진 경우 종료.
+		{
+			goodBye(fd_lcd);
+			sleep(2);
+			DisplayClear(fd_lcd);
+			pthread_exit(NULL);
+		}
+		else if (value == 1 || value == 2) { break; }
+	}
+	DisplayClear(fd_lcd);
+	//메뉴마다 전자레인지를 돌릴 시간(분)을 정함.
+	char minutes[5] = { '1','3','5','7','9' };
+	int idxminute = 1;//defalut minute is 3minute
+	while (1)
+	{//메뉴선택 : 1번: 선택완료 2번 메뉴다시선택 3번 종료
+		setminute(fd_lcd, minutes[idxminute]);
+		sem_wait(&sembutton);
+		value = pushVal;
+		if (value == 3) {
+			goodBye(f_lcd);
+			sleep(2);
+			DisplayClear(f_lcd);
+			pthread_exit(NULL);
+		}
+		else if (value == 1) //메뉴선택완료
+		{
+			break;
+		}
+		else if (value == 2)//메뉴다시선택
+		{
+			idxminute = (idxminute + 1) % 5;
+		}
+	}
+	timevalue = (idxminute * 2 + 1) * 60;//선택한 요리시간(분)을 초로 만듦.
+	DisplayClear(f_lcd);
+	sem_post(&semtimestart);//이제 7-segment로 시간이 표시된다.
+
+	sem_wait(&semtimeend);//7-segment가 00:00을 출력하기를 기다림.
+	sem_wait(&sembutton);//한번 더 눌러야 본격적으로 goodbye가 출력됨
+
+	DisplayClear(fd_lcd);//끝나서 goodbye를 출력하는것.
+	goodBye(fd_lcd);//goodbye출력함과 동시에
+	write(fd_vib, &vibpara, sizeof(int));//진동울리고
+	write(fd_pie, pieparam, sizeof(pieparam));//piezo음내고
+	sleep(2);
+	DisplayClear(fd_lcd);//종료
+	pthread_exit(NULL);
+}
+
+void seg()
+{
+	while (1)
+	{
+		int temp;
+		read(fd_but, &temp, 4);
+		pthread_mutex_lock(&sharedmutex);
+		pushVal = temp;
+		pthread_mutex_unlock(&sharedmutex);
+		sem_post(&sembutton);
+	}
+}
+
+void led_task()//시간을 나타내는 task
+{
+	int value;
+	sem_wait(&semtimestart);//timevalue를 led로 출력해야함.
+	sem_wait(&sembutton);//한번 더 눌러야 본격적으로 7-segment가 출력됨
+	pthread_mutex_lock(&sharedmutex);
+	pushVal = -1;
+	pthread_mutex_unlock(&sharedmutex);
+	while (timevalue != 0)
+	{
+		int i;
+		for (i = 0; i < 8; i++)
+		{
+			ledParam[i] = 0;
+		}
+		printf("%d %d\n", timevalue,pushVal);
+		if (pushVal == 1)
+		{
+			pthread_mutex_lock(&sharedmutex);
+			pushVal = -1;
+			pthread_mutex_unlock(&sharedmutex);
+			while (1)
+			{
+				if (pushVal == 1)
+				{
+					pthread_mutex_lock(&sharedmutex);
+					pushVal = -1;
+					pthread_mutex_unlock(&sharedmutex);
+					break;
+				}
+				transclock(timevalue);
+				DisplayClear(fd_lcd);
+				for (i = 0; i < 50; i++){
+					write(fd_seg, param, sizeof(param));
+				}
+				progress();
+				write(fd_led, ledParam, 8);
+
+			}
+		}
+		else if (pushVal == 2)
+		{
+			pthread_mutex_lock(&sharedmutex);
+			timevalue += 30;
+			pthread_mutex_unlock(&sharedmutex);
+			pthread_mutex_lock(&sharedmutex);
+			pushVal = -1;
+			pthread_mutex_unlock(&sharedmutex);
+		}
+
+		else if (pushVal == 3)
+		{
+			goodBye(fd_lcd);
+			sleep(2);
+			DisplayClear(fd_lcd);
+			pthread_exit(NULL);
+			pthread_mutex_lock(&sharedmutex);
+			pushVal = -1;
+			pthread_mutex_unlock(&sharedmutex);
+		}
+
+		transclock(timevalue);
+		for (i = 0; i<50; i++) {
+			write(fd_seg, param, sizeof(param));
+		}
+		progress();//led배열 바꾸기
+		write(fd_led, ledParam, 8);
+
+		pthread_mutex_lock(&sharedmutex);
+		timevalue--;
+		pthread_mutex_unlock(&sharedmutex);
+
+	}
+	sem_post(&semtimeend);//7-segment출력이 끝남
+}
+
+int main(int argc, char **argv) {
+	// led
+	//if((fd_led=open("/dev/led_2",O_RDWR))<=0){
+	//fprintf(stderr,"Open led error: %s\n",strerror(errno));
+	//return 0;
+	//}
+	fd_led = open("/dev/led_2", O_RDWR);
+	if (fd_led < 0) {
+		printf("Device Open ERROR6!\n");
+		return -1;
+	}
+	// interrupt button
+	fd_but = open("/dev/int_button", O_RDWR);
+	if (fd_but < 0) {
+		printf("Device Open ERROR1!\n");
+		return -1;
+	}
+	// 7 segment
+	fd_seg = open("/dev/segment", O_RDWR);
+	if (fd_seg<0) {
+		printf("Device Open ERROR2!\n");
+		return -1;
+	}
+	//textlcd
+	fd_lcd = open("/dev/text_lcd", O_RDWR);
+	if (fd_lcd<0) {
+		printf("Device Open ERROR3!\n");
+		return 0;
+	}
+	// vibrator
+	fd_vib = open("/dev/vibrator", O_RDWR);
+	if (fd_vib< 0) {
+		printf("Device Open ERROR4!\n");
+		return 0;
+	}
+	// piezo
+	fd_pie = open("/dev/piezo_2", O_RDWR);
+	if (fd_pie<0) {
+		printf("Device Open ERROR5!\n");
+		return 0;
+	}
+	sem_init(&sembutton, 0, 0);
+	pthread_create(&buttask, NULL, (void *)push_button, NULL);
+	pthread_create(&segtask, NULL, (void *)seg, NULL);
+	pthread_create(&ledtask, NULL, (void *)led_task, NULL);
+	pthread_join(buttask, NULL);
+	pthread_join(segtask, NULL);
+	pthread_join(ledtask, NULL);
+
+	close(fd_led);
+	close(fd_but);
+	close(fd_seg);
+	close(fd_pie);
+	close(fd_lcd);
+	close(fd_vib);
+	return 0;
+}
